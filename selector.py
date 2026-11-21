@@ -21,6 +21,8 @@ BASE = Path(os.environ.get('SQLGLOT_BASE', '/opt/sqlglot'))
 APP = Path(__file__).resolve().parent
 INDEX = APP / 'source_index.json'
 COVERAGE = APP / 'coverage.json.gz'
+STATIC_REFS = APP / 'test_references.json.gz'
+RISKY_COMMENT = re.compile(r'(?i)(pytest|type\s*:\s*ignore|pragma|noqa|no\s*cover|coding\s*[:=]|fmt\s*:|isort\s*:|ruff\s*:|nosec|doctest|assert|fixture|skipif|xfail)')
 HUNK_RX = re.compile(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@')
 
 
@@ -147,7 +149,11 @@ def is_safe_noop(change: Change, base: Path) -> bool:
     after = apply_hunks(before, change.hunks)
     if after is None: return False
     a, b = semantic_tokens(before), semantic_tokens(after)
-    return a is not None and b is not None and a == b
+    if a is None or b is None or a != b:
+        return False
+    changed_comments = [text for h in change.hunks for mark, text in h.lines
+                        if mark in ('+', '-') and text.lstrip().startswith('#')]
+    return not any(RISKY_COMMENT.search(comment) for comment in changed_comments)
 
 
 def build_ast_index(root: Path) -> dict[str, Any]:
@@ -316,6 +322,13 @@ class Engine:
             with gzip.open(APP / 'test_symbols.json.gz', 'rt', encoding='utf8') as stream:
                 self.class_mentions=json.load(stream)
         except (OSError,ValueError): pass
+        # Static references come only from base-tree tests, never patch labels.
+        self.static_refs: dict[str, list[str]] = {}
+        try:
+            with gzip.open(STATIC_REFS, 'rt', encoding='utf8') as stream:
+                self.static_refs = json.load(stream)
+        except (OSError, ValueError):
+            pass
         self.unprofiled_tests: set[int] = set()
         if coverage is None:
             try:
@@ -363,16 +376,30 @@ class Engine:
                 out.update(self.ids[s] for s in nodes if s in self.ids)
         return out
 
+    def references(self, symbol: str) -> set[int]:
+        if not symbol or len(symbol) < 7 or symbol.startswith('__'):
+            return set()
+        return {self.ids[tid] for tid in self.static_refs.get(symbol, ()) if tid in self.ids}
+
     def affected(self,change:Change) -> set[int]:
         path = change.path
         if change.old_path == '/dev/null' or path == '/dev/null':
             return self._fallback(path, high=True)
         if path.startswith('tests/fixtures/'):
-            return _fixture_tests(path, self.tests)
+            out = _fixture_tests(path, self.tests)
+            # Original executor integration tests read these fixture trees.
+            if '/optimizer/tpc-h/' in path or '/optimizer/tpc-ds/' in path:
+                out.update(self.executor_integration)
+            return out
         if path.startswith('tests/'):
-            if path.endswith('/conftest.py') or path == 'tests/conftest.py':
+            if (path.endswith('/conftest.py') or path == 'tests/conftest.py'
+                    or path.startswith('tests/helpers/') or path == 'tests/helpers.py'
+                    or path == 'tests/__init__.py'):
                 return set(self.all_ids)
-            return _nearby_test_ids(path,self.tests)
+            selected = _nearby_test_ids(path,self.tests)
+            if not selected and path.endswith('.py'):
+                return set(self.all_ids)
+            return selected
         if not path.startswith('sqlglot/'):
             # Test configuration and shared fixtures can affect the entire suite.
             if path in ('pyproject.toml','pytest.ini','conftest.py') or path.startswith('tests/'):
@@ -408,6 +435,22 @@ class Engine:
                 if c_lo == lo and c_hi == hi:
                     name=c_name.rsplit('.',1)[-1]
                     out.update(self.ids[tid] for tid in self.class_mentions.get(name,[]) if tid in self.ids)
+
+        # Trace-based coverage misses static attributes and unexecuted branches.
+        # These references are indexed from the pinned original test source.
+        for lo,hi in affected_functions:
+            symbols={name.rsplit('.',1)[-1] for start,end,name in funcs
+                     if start == lo and end == hi}
+            for symbol in symbols:
+                out.update(self.references(symbol))
+        if affected_classes or top_level:
+            for h in change.hunks:
+                for mark,text in h.lines:
+                    if mark not in ('-','+'):
+                        continue
+                    m=re.match(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?=',text)
+                    if m:
+                        out.update(self.references(m[1]))
 
         # Imported modules, class constants, and module initialization are not
         # tracked by function-call coverage. Widen the selection for those.
