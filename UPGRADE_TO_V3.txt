@@ -1,0 +1,18 @@
+Bizz01 Blast Radius v3 — under-150-second candidate
+
+Small ZIP:
+  1. Extract this ZIP.
+  2. Replace selector.py and run_bizz01_fast.ps1 in your existing Bizz01_BlastRadius folder.
+  3. Keep Docker Desktop running.
+  4. In that folder, run:
+     powershell -ExecutionPolicy Bypass -File .\run_bizz01_fast.ps1
+  5. Send ChatGPT both Simulated and Misses lines.
+
+Do NOT use run_windows.ps1 yet: that does another full Docker build.
+Once the fast benchmark is satisfactory, run run_windows.ps1 to verify a fresh
+submission image and then push the whole project to your own public GitHub repo.
+
+The latest 144.474 s / 0 misses figure is a LOCAL RECONSTRUCTION using the
+uploaded coverage map and earlier verified comment-only behavior, not a fresh
+Docker score. CPU time is extra. The goal is under 150 including CPU, but
+only the server can measure its container CPU overhead accurately.

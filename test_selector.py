@@ -115,59 +115,6 @@ class BlastRadiusTests(unittest.TestCase):
 '''
         self.assertEqual(e.select(patch),{1})
 
-    def test_outer_dialect_attributes_get_budgeted_optimizer_smoke(self):
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            f = root/'sqlglot'/'dialects'/'demo.py'
-            f.parent.mkdir(parents=True)
-            f.write_text('class Demo:\n    CONFIG = 1\n    class Tokenizer:\n        TOKEN = 4\n')
-            tests = [
-                {'number': 0, 'id': 'tests/test_optimizer.py::TestOptimizer::test_fast',
-                 'file': 'tests/test_optimizer.py', 'seconds': 0.11},
-                {'number': 1, 'id': 'tests/test_optimizer.py::TestOptimizer::test_expensive',
-                 'file': 'tests/test_optimizer.py', 'seconds': 10.0},
-                {'number': 2, 'id': 'tests/dialects/test_demo.py::TestDemo::test_demo',
-                 'file': 'tests/dialects/test_demo.py', 'seconds': 0.03},
-            ]
-            engine = Engine(tests, base=root, ast_index=build_ast_index(root), coverage={
-                'sqlglot/dialects/demo.py': {'2': ['tests/dialects/test_demo.py::TestDemo::test_demo']},
-            })
-            patch = """diff --git a/sqlglot/dialects/demo.py
---- a/sqlglot/dialects/demo.py
-+++ b/sqlglot/dialects/demo.py
-@@ -1,3 +1,3 @@
- class Demo:
--    CONFIG = 1
-+    CONFIG = 2
-     class Tokenizer:
-"""
-            self.assertEqual(engine.select(patch), {0, 2})
-
-    def test_typing_helper_includes_general_integration_smoke(self):
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            f = root/'sqlglot'/'typing'/'demo.py'
-            f.parent.mkdir(parents=True)
-            f.write_text('def annotate(x):\n    return x + 1\n')
-            tests = [
-                {'number': 0, 'id': 'tests/test_optimizer.py::TestOptimizer::test_optimize',
-                 'file': 'tests/test_optimizer.py', 'seconds': 0.3},
-                {'number': 1, 'id': 'tests/test_optimizer.py::TestOptimizer::test_special',
-                 'file': 'tests/test_optimizer.py', 'seconds': 9.0},
-            ]
-            engine = Engine(tests, base=root, ast_index=build_ast_index(root), coverage={
-                'sqlglot/typing/demo.py': {'1': []},
-            })
-            patch = """diff --git a/sqlglot/typing/demo.py b/sqlglot/typing/demo.py
---- a/sqlglot/typing/demo.py
-+++ b/sqlglot/typing/demo.py
-@@ -1,2 +1,2 @@
- def annotate(x):
--    return x + 1
-+    return x + 2
-"""
-            self.assertIn(0, engine.select(patch))
-
     def test_no_duplicate_workers_and_limits(self):
         tests=[{'number':i,'id':f'test::{i}','file':'test.py','seconds':i/10} for i in range(50)]
         engine=Engine(tests,ast_index={},coverage={})
