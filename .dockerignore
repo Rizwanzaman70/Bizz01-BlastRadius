@@ -1,0 +1,12 @@
+.git
+.gitignore
+__pycache__
+.pytest_cache
+sample/
+*.tar.gz
+predictions.jsonl
+coverage-raw.jsonl
+coverage-build.log
+coverage.json.gz
+source_index.json
+test_symbols.json.gz

@@ -1,0 +1,10 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+coverage-build.log
+coverage-raw.jsonl
+coverage.json.gz
+source_index.json
+test_symbols.json.gz
+*.tar.gz
+sample/
