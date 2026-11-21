@@ -39,11 +39,37 @@ def build_test_symbol_map(root: Path) -> dict[str,list[str]]:
     return {symbol:sorted(ids) for symbol,ids in uses.items()}
 
 
+
+def build_test_reference_map(root: Path) -> dict[str, list[str]]:
+    """Index static symbol mentions in original test methods, not failure labels."""
+    result=defaultdict(set)
+    for path in (root/'tests').rglob('test_*.py'):
+        rel=path.relative_to(root).as_posix()
+        try:
+            tree=ast.parse(path.read_text(encoding='utf8'))
+        except (OSError,UnicodeDecodeError,SyntaxError):
+            continue
+        def visit(body,qualifier):
+            for node in body:
+                if isinstance(node,ast.ClassDef):
+                    visit(node.body,[*qualifier,node.name])
+                elif isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name.startswith('test_'):
+                    identifier='::'.join([rel,*qualifier,node.name])
+                    for child in ast.walk(node):
+                        if isinstance(child,ast.Name):
+                            result[child.id].add(identifier)
+                        elif isinstance(child,ast.Attribute):
+                            result[child.attr].add(identifier)
+        visit(tree.body,[])
+    return {symbol:sorted(ids) for symbol,ids in result.items()}
+
 def main():
     print('Preparing source AST index ...',flush=True)
     (APP/'source_index.json').write_text(json.dumps(build_ast_index(BASE),separators=(',',':')))
     with gzip.open(APP/'test_symbols.json.gz','wt',encoding='utf8') as stream:
         json.dump(build_test_symbol_map(BASE),stream,separators=(',',':'))
+    with gzip.open(APP/'test_references.json.gz','wt',encoding='utf8',compresslevel=6) as stream:
+        json.dump(build_test_reference_map(BASE),stream,separators=(',',':'))
     raw=APP/'coverage-raw.jsonl'
     env=dict(os.environ)
     env['SQLGLOT_BASE']=str(BASE)
